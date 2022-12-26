@@ -19,13 +19,40 @@ class BaseTrainer:
         self.train_loader = train_loader
         self.config = config
 
-        self.optimizer = torch.optim.SGD(
-            net.parameters(),
-            config.optimizer.lr,
-            momentum=config.optimizer.momentum,
-            weight_decay=config.optimizer.weight_decay,
-            nesterov=True,
-        )
+        if config.optimizer.no_fc_decay:
+            decay_params_dict = {pn: p for pn, p in net.named_parameters()}
+            no_decay_params_dict = {}
+            if config.optimizer.no_fc_decay:
+                for pn in list(decay_params_dict.keys()):
+                    if 'fc.weight' in pn:
+                        no_decay_params_dict[pn] = decay_params_dict.pop(pn)
+
+            decay_params = list(decay_params_dict.values())
+            no_decay_params = list(no_decay_params_dict.values())
+            assert len(decay_params) + len(no_decay_params) == len(
+                list(net.named_parameters()))
+            assert len(no_decay_params) > 0
+
+            self.optimizer = torch.optim.SGD(
+                [{
+                    'params': decay_params,
+                    'weight_decay': config.optimizer.weight_decay
+                }, {
+                    'params': no_decay_params,
+                    'weight_decay': 0.
+                }],
+                config.optimizer.lr,
+                momentum=config.optimizer.momentum,
+                nesterov=True,
+            )
+        else:
+            self.optimizer = torch.optim.SGD(
+                net.parameters(),
+                config.optimizer.lr,
+                momentum=config.optimizer.momentum,
+                weight_decay=config.optimizer.weight_decay,
+                nesterov=True,
+            )
 
         self.scheduler = torch.optim.lr_scheduler.LambdaLR(
             self.optimizer,
