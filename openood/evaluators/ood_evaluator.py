@@ -48,15 +48,16 @@ class OODEvaluator(BaseEvaluator):
                                    ood_data_loaders['val'], postprocessor)
 
         # load nearood data and compute ood metrics
-        self._eval_ood(net, [id_pred, id_conf, id_gt],
-                       ood_data_loaders,
-                       postprocessor,
-                       ood_split='nearood')
+        neadood_metrics = self._eval_ood(net, [id_pred, id_conf, id_gt],
+                                         ood_data_loaders,
+                                         postprocessor,
+                                         ood_split='nearood')
         # load farood data and compute ood metrics
-        self._eval_ood(net, [id_pred, id_conf, id_gt],
-                       ood_data_loaders,
-                       postprocessor,
-                       ood_split='farood')
+        farood_metrics = self._eval_ood(net, [id_pred, id_conf, id_gt],
+                                        ood_data_loaders,
+                                        postprocessor,
+                                        ood_split='farood')
+        return {**neadood_metrics, **farood_metrics}
 
     def _eval_ood(self,
                   net: nn.Module,
@@ -67,6 +68,7 @@ class OODEvaluator(BaseEvaluator):
         print(f'Processing {ood_split}...', flush=True)
         [id_pred, id_conf, id_gt] = id_list
         metrics_list = []
+        metrics_dict = {}
         for dataset_name, ood_dl in ood_data_loaders[ood_split].items():
             print(f'Performing inference on {dataset_name} dataset...',
                   flush=True)
@@ -85,12 +87,15 @@ class OODEvaluator(BaseEvaluator):
             if self.config.recorder.save_csv:
                 self._save_csv(ood_metrics, dataset_name=dataset_name)
             metrics_list.append(ood_metrics)
+            metrics_dict[dataset_name] = ood_metrics
 
         print('Computing mean metrics...', flush=True)
         metrics_list = np.array(metrics_list)
         metrics_mean = np.mean(metrics_list, axis=0)
         if self.config.recorder.save_csv:
             self._save_csv(metrics_mean, dataset_name=ood_split)
+        metrics_dict[ood_split] = list(metrics_mean)
+        return metrics_dict
 
     def _save_csv(self, metrics, dataset_name):
         [fpr, auroc, aupr_in, aupr_out,
@@ -126,7 +131,57 @@ class OODEvaluator(BaseEvaluator):
         print('ACC: {:.2f}'.format(accuracy * 100), flush=True)
         print(u'\u2500' * 70, flush=True)
 
-        csv_path = os.path.join(self.config.output_dir, 'ood.csv')
+        csv_path = os.path.join(self.config.output_dir,
+                                f'{self.config.postprocessor.name}.csv')
+        if not os.path.exists(csv_path):
+            with open(csv_path, 'w', newline='') as csvfile:
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerow(write_content)
+        else:
+            with open(csv_path, 'a', newline='') as csvfile:
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                writer.writerow(write_content)
+
+    def _save_csv_with_std(self, metrics_mean, metrics_std, dataset_name,
+                           num_avg_runs):
+        [
+            fpr_mean, auroc_mean, aupr_in_mean, aupr_out_mean, ccr_4_mean,
+            ccr_3_mean, ccr_2_mean, ccr_1_mean, accuracy_mean
+        ] = metrics_mean
+
+        [
+            fpr_std, auroc_std, aupr_in_std, aupr_out_std, ccr_4_std,
+            ccr_3_std, ccr_2_std, ccr_1_std, accuracy_std
+        ] = metrics_std
+
+        write_content = {
+            'dataset': dataset_name,
+            'FPR@95_mean': '{:.2f}'.format(100 * fpr_mean),
+            'FPR@95_std': '{:.2f}'.format(100 * fpr_std),
+            'AUROC_mean': '{:.2f}'.format(100 * auroc_mean),
+            'AUROC_std': '{:.2f}'.format(100 * auroc_std),
+            'AUPR_IN_mean': '{:.2f}'.format(100 * aupr_in_mean),
+            'AUPR_IN_std': '{:.2f}'.format(100 * aupr_in_std),
+            'AUPR_OUT_mean': '{:.2f}'.format(100 * aupr_out_mean),
+            'AUPR_OUT_std': '{:.2f}'.format(100 * aupr_out_std),
+            'CCR_4_mean': '{:.2f}'.format(100 * ccr_4_mean),
+            'CCR_4_std': '{:.2f}'.format(100 * ccr_4_std),
+            'CCR_3_mean': '{:.2f}'.format(100 * ccr_3_mean),
+            'CCR_3_std': '{:.2f}'.format(100 * ccr_3_std),
+            'CCR_2_mean': '{:.2f}'.format(100 * ccr_2_mean),
+            'CCR_2_std': '{:.2f}'.format(100 * ccr_2_std),
+            'CCR_1_mean': '{:.2f}'.format(100 * ccr_1_mean),
+            'CCR_1_std': '{:.2f}'.format(100 * ccr_1_std),
+            'ACC_mean': '{:.2f}'.format(100 * accuracy_mean),
+            'ACC_std': '{:.2f}'.format(100 * accuracy_std)
+        }
+
+        fieldnames = list(write_content.keys())
+
+        csv_path = os.path.join(
+            self.config.output_dir,
+            f'runs={num_avg_runs}_' + f'{self.config.postprocessor.name}.csv')
         if not os.path.exists(csv_path):
             with open(csv_path, 'w', newline='') as csvfile:
                 writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
@@ -138,7 +193,9 @@ class OODEvaluator(BaseEvaluator):
                 writer.writerow(write_content)
 
     def _save_scores(self, pred, conf, gt, save_name):
-        save_dir = os.path.join(self.config.output_dir, 'scores')
+        save_dir = os.path.join(
+            self.config.output_dir,
+            f'{self.config.postprocessor.name}_' + 'scores')
         os.makedirs(save_dir, exist_ok=True)
         np.savez(os.path.join(save_dir, save_name),
                  pred=pred,
