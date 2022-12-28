@@ -19,28 +19,11 @@ class BaseTrainer:
         self.train_loader = train_loader
         self.config = config
 
-        weight_params_dict = {pn: p for pn, p in net.named_parameters()}
-        fc_params_dict = {}
-        for pn in list(weight_params_dict.keys()):
-            if 'fc.weight' in pn:
-                fc_params_dict[pn] = weight_params_dict.pop(pn)
-
-        weight_params = list(weight_params_dict.values())
-        fc_params = list(fc_params_dict.values())
-        assert len(weight_params) + len(fc_params) == len(
-            list(net.named_parameters()))
-        assert len(fc_params) > 0
-
         self.optimizer = torch.optim.SGD(
-            [{
-                'params': weight_params,
-                'weight_decay': config.optimizer.weight_decay
-            }, {
-                'params': fc_params,
-                'weight_decay': config.optimizer.fc_decay
-            }],
+            net.parameters(),
             config.optimizer.lr,
             momentum=config.optimizer.momentum,
+            weight_decay=config.optimizer.weight_decay,
             nesterov=True,
         )
 
