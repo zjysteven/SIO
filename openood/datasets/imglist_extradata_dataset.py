@@ -66,12 +66,11 @@ class ImglistExtraDataDataset(BaseDataset):
         self.total_num = len(self.imglist) + self.extra_num
 
         rng = np.random.RandomState(0)
-        indices = rng.permute(len(extra_labels))
+        indices = rng.permutation(len(extra_labels))
         self.extra_data = extra_data[indices[:self.extra_num]]
         self.extra_labels = extra_labels[indices[:self.extra_num]]
-        self.extra_ids = [
-            _ for _ in range(self.total_num) if _ not in self.orig_ids
-        ]
+        self.extra_ids = list(
+            set(range(self.total_num)) - set(range(len(self.imglist))))
 
     def __len__(self):
         return self.total_num
