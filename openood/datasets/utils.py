@@ -23,7 +23,7 @@ def get_dataloader(config: Config):
         # weak augmentation for data_aux
         data_aux_preprocessor = TestStandardPreProcessor(config)
 
-        if split_config.dataset_class != 'ImglistExtraDataDatset':
+        if split_config.dataset_class != 'ImglistExtraDataDataset':
             CustomDataset = eval(split_config.dataset_class)
             dataset = CustomDataset(
                 name=dataset_config.name + '_' + split,
