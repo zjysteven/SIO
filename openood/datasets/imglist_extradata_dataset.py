@@ -149,6 +149,11 @@ class TwoSourceSampler(Sampler):
         self.batch_size = batch_size
         self.real_batch_size = int(self.batch_size * real_ratio)
         self.syn_batch_size = self.batch_size - self.real_batch_size
+        if real_ratio == 0:
+            assert self.real_batch_size == 0
+        elif real_ratio == 1:
+            assert self.syn_batch_size == 0
+
         self.num_batches = int(np.ceil(len(self.real_inds) / self.batch_size))
         super().__init__(None)
 
