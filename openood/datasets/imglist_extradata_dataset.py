@@ -122,12 +122,14 @@ class ImglistExtraDataDataset(BaseDataset):
                 raise e
             return sample
         else:
-            image = Image.fromarray(self.extra_data[index])
+            ind = index - len(self.imglist)
+            image = Image.fromarray(self.extra_data[ind])
 
             sample = dict()
+            sample['image_name'] = str(ind)  # dummy name
             sample['data'] = self.transform_image(image)
             sample['data_aux'] = self.transform_aux_image(image)
-            sample['label'] = self.extra_labels[index]
+            sample['label'] = self.extra_labels[ind]
 
             # Generate Soft Label
             soft_label = torch.Tensor(self.num_classes)
