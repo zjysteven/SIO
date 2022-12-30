@@ -113,7 +113,14 @@ def save_logger(config, output):
     os.makedirs(output, exist_ok=True)
     # Save config
     # FIXME: saved config file is not beautified.
-    config_save_path = osp.join(output, f'{config.pipeline.name}_config.yml')
+
+    if 'test_ood' in config.pipeline.name:
+        aux_info = f'_{config.postprocessor.name}'
+    else:
+        aux_info = ''
+
+    config_save_path = osp.join(
+        output, f'{config.pipeline.name}{aux_info}_config.yml')
     with open(config_save_path, 'w') as f:
         yaml.dump(config,
                   f,
@@ -121,5 +128,5 @@ def save_logger(config, output):
                   sort_keys=False,
                   indent=2)
     # save log file
-    fpath = osp.join(output, f'{config.pipeline.name}_log.txt')
+    fpath = osp.join(output, f'{config.pipeline.name}{aux_info}_log.txt')
     sys.stdout = Logger(fpath)
