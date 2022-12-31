@@ -9,3 +9,4 @@ postprocessor:
     save_anomaly_map: True
     noise:
     feature_type_list:
+  APS_mode: False
