@@ -20,7 +20,7 @@ resize_list = {
 
 
 class PixMixPreprocessor(BasePreprocessor):
-    def __init__(self, config, split):
+    def __init__(self, config):
         self.config = config
         dataset_name = config.dataset.name.split('_')[0]
         image_size = config.dataset.image_size
@@ -70,26 +70,25 @@ class PixMixPreprocessor(BasePreprocessor):
 
     def pixmix(self, orig, mixing_pic):
         mixings = [add, multiply]
-        orig = self.transform(orig)  
-       
+        orig = self.transform(orig)
+
         # do basic augmentation first
         mixing_pic = self.mixing_set_transform(mixing_pic)
-    
+
         if np.random.random() < 0.5:
             mixed = self.tensorize(self.augment_input(orig))
         else:
             mixed = self.tensorize(orig)
 
-        
         for _ in range(np.random.randint(self.args.k + 1)):
 
             if np.random.random() < 0.5:
                 aug_image_copy = self.tensorize(self.augment_input(orig))
             else:
                 aug_image_copy = self.tensorize(mixing_pic)
-         
+
             mixed_op = np.random.choice(mixings)
-            
+
             mixed = mixed_op(mixed, aug_image_copy, self.args.beta)
             mixed = torch.clip(mixed, 0, 1)
 
