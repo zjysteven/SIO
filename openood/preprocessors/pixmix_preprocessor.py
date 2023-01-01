@@ -34,8 +34,11 @@ class PixMixPreprocessor(BasePreprocessor):
             std = [0.5, 0.5, 0.5]
         self.normalize = tvs_trans.Normalize(mean, std)  # ? use which one ?
         pre_size = config.dataset.pre_size
-        interpolation = interpolation_modes[
-            config.dataset['train'].interpolation]
+        try:
+            interpolation = interpolation_modes[
+                config.dataset['train'].interpolation]
+        except KeyError:
+            interpolation = tvs_trans.InterpolationMode.BILINEAR
 
         self.transform = tvs_trans.Compose([
             Convert('RGB'),
@@ -98,7 +101,7 @@ class PixMixPreprocessor(BasePreprocessor):
 """Base augmentations operators."""
 
 # ImageNet code should change this value
-IMAGE_SIZE = 28
+IMAGE_SIZE = 32
 
 #########################################################
 #################### AUGMENTATIONS ######################
