@@ -55,9 +55,10 @@ def get_network(network_config):
     elif network_config.name == 'lenet':
         net = LeNet(num_classes=num_classes, num_channel=3)
 
-    elif network_config.name == 'wrn':
-        net = WideResNet(depth=28,
-                         widen_factor=10,
+    elif 'wrn' in network_config.name:
+        depth, widen_factor = network_config.name[3:].split('x')
+        net = WideResNet(depth=int(depth),
+                         widen_factor=int(widen_factor),
                          dropRate=0.0,
                          num_classes=num_classes)
 
