@@ -10,8 +10,11 @@ num_machines: 1
 machine_rank: 0
 
 network:
-  pretrained: True
+  pretrained: False
   ckpt_dir: None
+  backbone:
+    pretrained: false
+    ckpt_dir: None
 
 pipeline:
   name: test_ood_multiruns
