@@ -37,5 +37,5 @@ recorder:
   save_all_models: False
 
 scheduler:
-  milestones: [80, 120] #[60,120,160] for cifar10, [80, 120] for svhn
-  gamma: 0.1 #0.2 for cifar10, 0.1 for svhn
+  milestones: [60,120,160] #[60,120,160] for cifar10, [80, 120] for svhn
+  gamma: 0.2 #0.2 for cifar10, 0.1 for svhn
