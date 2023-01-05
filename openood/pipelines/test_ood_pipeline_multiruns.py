@@ -14,7 +14,7 @@ from openood.utils import setup_logger
 class TestOODPipelineMultiruns:
     def __init__(self, config) -> None:
         self.config = config
-        if self.config.postprocessor.name in ['react', 'openmax']:
+        if self.config.postprocessor.name in ['react']:
             self.num_runs = len(
                 glob.glob(
                     os.path.join(self.config.network.backbone.ckpt_dir, 's*')))
@@ -40,7 +40,7 @@ class TestOODPipelineMultiruns:
     def run(self):
         # generate output directory and save the full config file
         # manually modify the output dir
-        if self.config.postprocessor.name in ['react', 'openmax']:
+        if self.config.postprocessor.name in ['react']:
             self.config.output_dir = self.config.network.backbone.ckpt_dir
         else:
             self.config.output_dir = self.config.network.ckpt_dir
@@ -53,7 +53,7 @@ class TestOODPipelineMultiruns:
         all_ood_metrics = []
         for r in range(self.num_runs):
             # init network
-            if self.config.postprocessor.name in ['react', 'openmax']:
+            if self.config.postprocessor.name in ['react']:
                 self.config.network.backbone.pretrained = True
                 self.config.network.backbone.checkpoint = self.ckpt_paths[r]
             else:
@@ -62,7 +62,7 @@ class TestOODPipelineMultiruns:
             net = get_network(self.config.network)
 
             # manually modify the output dir
-            if self.config.postprocessor.name in ['react', 'openmax']:
+            if self.config.postprocessor.name in ['react']:
                 self.config.output_dir = '/'.join(
                     self.config.network.backbone.checkpoint.split('/')[:-1])
             else:
@@ -96,7 +96,7 @@ class TestOODPipelineMultiruns:
                                                            timer))
             all_ood_metrics.append(ood_metrics)
 
-        if self.config.postprocessor.name in ['react', 'openmax']:
+        if self.config.postprocessor.name in ['react']:
             self.config.output_dir = self.config.network.backbone.ckpt_dir
         else:
             self.config.output_dir = self.config.network.ckpt_dir
