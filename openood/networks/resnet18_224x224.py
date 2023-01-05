@@ -68,7 +68,7 @@ class ResNet18_224x224(nn.Module):
         self.layer4 = self._make_layer(block, 512, num_blocks[3], stride=2)
         self.avgpool = nn.AvgPool2d(7, stride=2)
 
-        self.dropout = nn.Dropout2d(p=0.5, inplace=True)
+        # self.dropout = nn.Dropout2d(p=0.5, inplace=True)
 
         # print "block.expansion=",block.expansion
         self.fc = nn.Linear(512 * block.expansion, num_classes)
@@ -109,8 +109,8 @@ class ResNet18_224x224(nn.Module):
         feature4 = self.layer3(feature3)
         feature5 = self.layer4(feature4)
         feature5 = self.avgpool(feature5)
-        feature = self.dropout(feature5)
-        feature = feature.view(feature.size(0), -1)
+        # feature = self.dropout(feature5)
+        feature = feature5.view(feature5.size(0), -1)
         logits_cls = self.fc(feature)
         feature_list = [feature1, feature2, feature3, feature4, feature5]
         if return_feature:
