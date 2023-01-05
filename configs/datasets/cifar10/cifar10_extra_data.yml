@@ -19,8 +19,8 @@ dataset:
     imglist_pth: ./data/benchmark_imglist/cifar10/train_cifar10.txt
     batch_size: 128
     shuffle: True
-    extra_data_pth: ./data/images_classic/cifar10_extra/ddpm/images.npy
-    extra_label_pth: ./data/images_classic/cifar10_extra/ddpm/labels.npy
+    extra_data_pth: None
+    extra_label_pth: None
     extra_percent: 100
     orig_ratio: 1.0
   val:
