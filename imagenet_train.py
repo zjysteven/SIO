@@ -6,7 +6,11 @@ import shutil
 import time
 import warnings
 from enum import Enum
+from operator import itemgetter
+from pathlib import Path
+from typing import Iterator, Optional
 
+import numpy as np
 import torch
 import torch.backends.cudnn as cudnn
 import torch.distributed as dist
@@ -18,17 +22,158 @@ import torch.utils.data
 import torch.utils.data.distributed
 import torchvision.datasets as datasets
 import torchvision.transforms as transforms
-from torch.optim.lr_scheduler import StepLR
-from torch.utils.data import Subset
+from torch.optim.lr_scheduler import MultiStepLR
+from torch.utils.data import Dataset, Sampler, Subset
+from tqdm import tqdm
 
 from openood.networks import ResNet18_224x224
 
+
+# ######################################
+# sampler
+class DatasetFromSampler(Dataset):
+    """Dataset to create indexes from `Sampler`.
+
+    Args:
+        sampler: PyTorch sampler
+    """
+    def __init__(self, sampler: Sampler):
+        """Initialisation for DatasetFromSampler."""
+        self.sampler = sampler
+        self.sampler_list = None
+
+    def __getitem__(self, index: int):
+        """Gets element of the dataset.
+
+        Args:
+            index: index of the element in the dataset
+        Returns:
+            Single element by index
+        """
+        if self.sampler_list is None:
+            self.sampler_list = list(self.sampler)
+        return self.sampler_list[index]
+
+    def __len__(self) -> int:
+        """
+        Returns:
+            int: length of the dataset
+        """
+        return len(self.sampler)
+
+
+# https://github.com/catalyst-team/catalyst/blob/master/catalyst/data/sampler.py
+class DistributedSamplerWrapper(torch.utils.data.distributed.DistributedSampler
+                                ):
+    """Wrapper over `Sampler` for distributed training. Allows you to use any
+    sampler in distributed mode. It is especially useful in conjunction with
+    `torch.nn.parallel.DistributedDataParallel`. In such case, each process can
+    pass a DistributedSamplerWrapper instance as a DataLoader sampler, and load
+    a subset of subsampled data of the original dataset that is exclusive to
+    it.
+
+    .. note::     Sampler is assumed to be of constant size.
+    """
+    def __init__(
+        self,
+        sampler,
+        num_replicas: Optional[int] = None,
+        rank: Optional[int] = None,
+        shuffle: bool = True,
+    ):
+        """
+        Args:
+            sampler: Sampler used for subsampling
+            num_replicas (int, optional): Number of processes participating in
+                distributed training
+            rank (int, optional): Rank of the current process
+                within ``num_replicas``
+            shuffle (bool, optional): If true (default),
+                sampler will shuffle the indices
+        """
+        super(DistributedSamplerWrapper, self).__init__(
+            DatasetFromSampler(sampler),
+            num_replicas=num_replicas,
+            rank=rank,
+            shuffle=shuffle,
+        )
+        self.sampler = sampler
+
+    def __iter__(self) -> Iterator[int]:
+        """Iterate over sampler.
+
+        Returns:
+            python iterator
+        """
+        self.dataset = DatasetFromSampler(self.sampler)
+        indexes_of_indexes = super().__iter__()
+        subsampler_indexes = self.dataset
+        return iter(itemgetter(*indexes_of_indexes)(subsampler_indexes))
+
+
+class TwoSourceSampler(Sampler):
+    def __init__(self, real_inds, syn_inds, batch_size, real_ratio=0.5):
+        assert len(real_inds) == 1281167
+        self.real_inds = real_inds
+        self.syn_inds = syn_inds
+        self.batch_size = batch_size
+        self.real_batch_size = int(self.batch_size * real_ratio)
+        self.syn_batch_size = self.batch_size - self.real_batch_size
+        if real_ratio == 0:
+            assert self.real_batch_size == 0
+        elif real_ratio == 1:
+            assert self.syn_batch_size == 0
+
+        self.num_batches = int(np.ceil(len(self.real_inds) / self.batch_size))
+        super().__init__(None)
+
+    def __iter__(self):
+        batch_counter = 0
+        real_inds_shuffled = [
+            self.real_inds[i] for i in torch.randperm(len(self.real_inds))
+        ]
+        syn_inds_shuffled = [
+            self.syn_inds[i] for i in torch.randperm(len(self.syn_inds))
+        ]
+
+        real_offset = 0
+        syn_offset = 0
+        while batch_counter < self.num_batches:
+            real_batch = real_inds_shuffled[
+                real_offset:min(real_offset +
+                                self.real_batch_size, len(real_inds_shuffled))]
+            real_offset += self.real_batch_size
+
+            syn_batch = syn_inds_shuffled[
+                syn_offset:min(syn_offset +
+                               self.syn_batch_size, len(syn_inds_shuffled))]
+            syn_offset += self.syn_batch_size
+
+            batch = real_batch + syn_batch
+            np.random.shuffle(batch)
+            yield batch
+            batch_counter += 1
+
+    def __len__(self):
+        return self.num_batches
+
+
+# ######################################
+
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
-parser.add_argument('data',
+parser.add_argument('--data',
                     metavar='DIR',
                     nargs='?',
                     default='imagenet',
                     help='path to dataset (default: imagenet)')
+parser.add_argument('--extra-data',
+                    type=str,
+                    default=None,
+                    help='path to extra data folder')
+parser.add_argument('--real-ratio',
+                    type=float,
+                    default=0.9,
+                    help='ratio of real data within a batch')
 parser.add_argument('-j',
                     '--workers',
                     default=4,
@@ -120,6 +265,7 @@ parser.add_argument('--dummy',
                     help='use fake data to benchmark')
 
 best_acc1 = 0
+best_epoch = -1
 
 
 def main():
@@ -146,25 +292,26 @@ def main():
     args.distributed = args.world_size > 1 or args.multiprocessing_distributed
 
     if torch.cuda.is_available():
-        ngpus_per_node = torch.cuda.device_count()
+        args.ngpus_per_node = torch.cuda.device_count()
     else:
-        ngpus_per_node = 1
+        args.ngpus_per_node = 1
     if args.multiprocessing_distributed:
         # Since we have ngpus_per_node processes per node, the total world_size
         # needs to be adjusted accordingly
-        args.world_size = ngpus_per_node * args.world_size
+        args.world_size = args.ngpus_per_node * args.world_size
         # Use torch.multiprocessing.spawn to launch distributed processes: the
         # main_worker process function
         mp.spawn(main_worker,
-                 nprocs=ngpus_per_node,
-                 args=(ngpus_per_node, args))
+                 nprocs=args.ngpus_per_node,
+                 args=(args.ngpus_per_node, args))
     else:
         # Simply call main_worker function
-        main_worker(args.gpu, ngpus_per_node, args)
+        main_worker(args.gpu, args.ngpus_per_node, args)
 
 
 def main_worker(gpu, ngpus_per_node, args):
     global best_acc1
+    global best_epoch
     args.gpu = gpu
 
     if args.gpu is not None:
@@ -176,11 +323,29 @@ def main_worker(gpu, ngpus_per_node, args):
         if args.multiprocessing_distributed:
             # For multiprocessing distributed training, rank needs to be the
             # global rank among all the processes
-            args.rank = args.rank * ngpus_per_node + gpu
+            args.rank = args.rank * args.ngpus_per_node + gpu
         dist.init_process_group(backend=args.dist_backend,
                                 init_method=args.dist_url,
                                 world_size=args.world_size,
                                 rank=args.rank)
+
+    expr_name = f'imagenet_resnet18_224x224' \
+        f'_e{args.epochs}_bs{args.batch_size}_lr{args.lr:.1f}'
+    if args.extra_data is None:
+        expr_name += '_default'
+    else:
+        extra_data_name = args.extra_data.split('/')[-1]
+        expr_name += \
+            f'_extradata-biggan-{extra_data_name}-ratio{args.real_ratio:.2f}'
+    expr_name += '/s0'
+
+    output_dir = os.path.join('results', expr_name)
+    if not args.multiprocessing_distributed or (
+            args.multiprocessing_distributed
+            and args.rank % ngpus_per_node == 0):
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
     # create model
     print("=> creating model 'ResNet18'")
     model = ResNet18_224x224(num_classes=1000)
@@ -238,8 +403,12 @@ def main_worker(gpu, ngpus_per_node, args):
                                 args.lr,
                                 momentum=args.momentum,
                                 weight_decay=args.weight_decay)
-    """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
-    scheduler = StepLR(optimizer, step_size=30, gamma=0.1)
+
+    milestones = [1 / 3, 2 / 3, 8 / 9]
+    scheduler = MultiStepLR(
+        optimizer,
+        milestones=[int(args.epochs * m) for m in milestones],
+        gamma=0.1)
 
     # optionally resume from a checkpoint
     if args.resume:
@@ -286,6 +455,16 @@ def main_worker(gpu, ngpus_per_node, args):
                 normalize,
             ]))
 
+        if args.extra_data:
+            extra_train_dataset = datasets.ImageFolder(args.extra_data,
+                                                       transform=None)
+            # include extra data into train_dataset
+            train_dataset.real_inds = list(range(len(train_dataset)))
+            train_dataset.samples.extend(extra_train_dataset.samples)
+            train_dataset.targets.extend(extra_train_dataset.targets)
+            train_dataset.syn_inds = list(
+                set(range(len(train_dataset))) - set(train_dataset.real_inds))
+
         val_dataset = datasets.ImageFolder(
             valdir,
             transforms.Compose([
@@ -294,10 +473,21 @@ def main_worker(gpu, ngpus_per_node, args):
                 transforms.ToTensor(),
                 normalize,
             ]))
+        rng = np.random.RandomState(0)
+        val_dataset = Subset(
+            val_dataset,
+            rng.choice(range(len(val_dataset)), size=5000, replace=False))
 
     if args.distributed:
-        train_sampler = torch.utils.data.distributed.DistributedSampler(
-            train_dataset)
+        if args.extra_data is None:
+            train_sampler = torch.utils.data.distributed.DistributedSampler(
+                train_dataset)
+        else:
+            train_sampler = DistributedSamplerWrapper(
+                TwoSourceSampler(train_dataset.real_inds,
+                                 train_dataset.syn_inds, args.batch_size,
+                                 args.real_ratio))
+
         val_sampler = torch.utils.data.distributed.DistributedSampler(
             val_dataset, shuffle=False, drop_last=True)
     else:
@@ -322,7 +512,13 @@ def main_worker(gpu, ngpus_per_node, args):
         validate(val_loader, model, criterion, args)
         return
 
-    for epoch in range(args.start_epoch, args.epochs):
+    for epoch in tqdm(range(args.start_epoch, args.epochs),
+                      total=args.epochs,
+                      desc='Epochs',
+                      position=0,
+                      leave=True,
+                      disable=(args.multiprocessing_distributed
+                               and args.rank % ngpus_per_node != 0)):
         if args.distributed:
             train_sampler.set_epoch(epoch)
 
@@ -336,20 +532,28 @@ def main_worker(gpu, ngpus_per_node, args):
 
         # remember best acc@1 and save checkpoint
         is_best = acc1 > best_acc1
-        best_acc1 = max(acc1, best_acc1)
 
-        if not args.multiprocessing_distributed or (
-                args.multiprocessing_distributed
-                and args.rank % ngpus_per_node == 0):
-            save_checkpoint(
-                {
-                    'epoch': epoch + 1,
-                    'arch': args.arch,
-                    'state_dict': model.state_dict(),
-                    'best_acc1': best_acc1,
-                    'optimizer': optimizer.state_dict(),
-                    'scheduler': scheduler.state_dict()
-                }, is_best)
+        if is_best:
+            if not args.multiprocessing_distributed or (
+                    args.multiprocessing_distributed
+                    and args.rank % ngpus_per_node == 0):
+
+                old_fname = 'best_epoch{}_acc{:.2f}.ckpt'.format(
+                    best_epoch, best_acc1)
+                old_pth = os.path.join(output_dir, old_fname)
+                Path(old_pth).unlink(missing_ok=True)
+
+                save_fname = 'best_epoch{}_acc{:.2f}.ckpt'.format(epoch, acc1)
+                save_pth = os.path.join(output_dir, save_fname)
+
+                try:
+                    torch.save(model.module.state_dict(), save_pth)
+                except:
+                    torch.save(model.state_dict(), save_pth)
+
+        best_acc1 = max(acc1, best_acc1)
+        if is_best:
+            best_epoch = epoch
 
 
 def train(train_loader, model, criterion, optimizer, epoch, device, args):
@@ -366,7 +570,14 @@ def train(train_loader, model, criterion, optimizer, epoch, device, args):
     model.train()
 
     end = time.time()
-    for i, (images, target) in enumerate(train_loader):
+    for i, (images, target) in tqdm(
+            enumerate(train_loader),
+            total=len(train_loader),
+            desc='Train',
+            position=1,
+            leave=False,
+            disable=(args.multiprocessing_distributed
+                     and args.rank % args.ngpus_per_node != 0)):
         # measure data loading time
         data_time.update(time.time() - end)
 
@@ -393,8 +604,11 @@ def train(train_loader, model, criterion, optimizer, epoch, device, args):
         batch_time.update(time.time() - end)
         end = time.time()
 
-        if i % args.print_freq == 0:
-            progress.display(i + 1)
+        # if not args.multiprocessing_distributed or (
+        #    args.multiprocessing_distributed
+        #    and args.rank % args.ngpus_per_node == 0):
+        #    if i % args.print_freq == 0:
+        #        progress.display(i + 1)
 
 
 def validate(val_loader, model, criterion, args):
@@ -405,9 +619,9 @@ def validate(val_loader, model, criterion, args):
                 i = base_progress + i
                 if args.gpu is not None and torch.cuda.is_available():
                     images = images.cuda(args.gpu, non_blocking=True)
-                if torch.backends.mps.is_available():
-                    images = images.to('mps')
-                    target = target.to('mps')
+                # if torch.backends.mps.is_available():
+                #    images = images.to('mps')
+                #    target = target.to('mps')
                 if torch.cuda.is_available():
                     target = target.cuda(args.gpu, non_blocking=True)
 
@@ -425,8 +639,11 @@ def validate(val_loader, model, criterion, args):
                 batch_time.update(time.time() - end)
                 end = time.time()
 
-                if i % args.print_freq == 0:
-                    progress.display(i + 1)
+                if not args.multiprocessing_distributed or (
+                        args.multiprocessing_distributed
+                        and args.rank % args.ngpus_per_node == 0):
+                    if i % args.print_freq == 0:
+                        progress.display(i + 1)
 
     batch_time = AverageMeter('Time', ':6.3f', Summary.NONE)
     losses = AverageMeter('Loss', ':.4e', Summary.NONE)
@@ -461,7 +678,10 @@ def validate(val_loader, model, criterion, args):
             pin_memory=True)
         run_validate(aux_val_loader, len(val_loader))
 
-    progress.display_summary()
+    if not args.multiprocessing_distributed or (
+            args.multiprocessing_distributed
+            and args.rank % args.ngpus_per_node == 0):
+        progress.display_summary()
 
     return top1.avg
 
@@ -542,12 +762,12 @@ class ProgressMeter(object):
     def display(self, batch):
         entries = [self.prefix + self.batch_fmtstr.format(batch)]
         entries += [str(meter) for meter in self.meters]
-        print('\t'.join(entries))
+        tqdm.write('\t'.join(entries))
 
     def display_summary(self):
         entries = [' *']
         entries += [meter.summary() for meter in self.meters]
-        print(' '.join(entries))
+        tqdm.write(' '.join(entries))
 
     def _get_batch_fmtstr(self, num_batches):
         num_digits = len(str(num_batches // 1))
