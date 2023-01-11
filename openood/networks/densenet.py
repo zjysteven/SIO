@@ -165,8 +165,8 @@ class DenseNet3(nn.Module):
         feature3 = self.trans2(self.block2(feature2))
         feature4 = self.block3(feature3)
         feature5 = self.relu(self.bn1(feature4))
-        out = F.avg_pool2d(feature5, 8)
-        feature = out.view(-1, self.in_planes)
+        feature5 = F.avg_pool2d(feature5, 8)
+        feature = feature5.view(-1, self.in_planes)
         logits_cls = self.fc(feature)
         feature_list = [
             feature, feature1, feature2, feature3, feature4, feature5
@@ -177,6 +177,19 @@ class DenseNet3(nn.Module):
             return logits_cls, feature_list
         else:
             return logits_cls
+
+    def forward_threshold(self, x, threshold):
+        feature1 = self.conv1(x)
+        feature2 = self.trans1(self.block1(feature1))
+        feature3 = self.trans2(self.block2(feature2))
+        feature4 = self.block3(feature3)
+        feature5 = self.relu(self.bn1(feature4))
+        out = F.avg_pool2d(feature5, 8)
+        out = out.clip(max=threshold)
+        feature = out.view(-1, self.in_planes)
+        logits_cls = self.fc(feature)
+
+        return logits_cls
 
     def get_fc(self):
         fc = self.fc
