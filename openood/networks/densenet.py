@@ -113,7 +113,7 @@ class DenseNet3(nn.Module):
         super(DenseNet3, self).__init__()
         in_planes = 2 * growth_rate
         n = (depth - 4) / 3
-        if bottleneck == True:
+        if bottleneck:
             n = n / 2
             block = BottleneckBlock
         else:
@@ -159,7 +159,7 @@ class DenseNet3(nn.Module):
             elif isinstance(m, nn.Linear):
                 m.bias.data.zero_()
 
-    def forward(self, x, return_feature=False):
+    def forward(self, x, return_feature=False, return_feature_list=False):
         feature1 = self.conv1(x)
         feature2 = self.trans1(self.block1(feature1))
         feature3 = self.trans2(self.block2(feature2))
@@ -172,6 +172,8 @@ class DenseNet3(nn.Module):
             feature, feature1, feature2, feature3, feature4, feature5
         ]
         if return_feature:
+            return logits_cls, feature
+        elif return_feature_list:
             return logits_cls, feature_list
         else:
             return logits_cls
