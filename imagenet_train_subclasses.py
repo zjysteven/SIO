@@ -426,10 +426,10 @@ def main_worker(gpu, ngpus_per_node, args):
     if args.extra_data is None:
         expr_name += '_default'
     else:
-        extra_data_name = '-'.join(
-            args.extra_data.split('/')[-1].split('-')[2:])
+        #extra_data_name = '-'.join(
+        #    args.extra_data.split('/')[-1].split('-')[2:])
         expr_name += \
-            f'_extradata-biggan-{extra_data_name}-ratio{args.real_ratio:.2f}'
+            f'_extradata-biggan-ratio{args.real_ratio:.2f}'
     expr_name += f'/s{args.seed}'
 
     output_dir = os.path.join('results', expr_name)
