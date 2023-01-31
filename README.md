@@ -11,13 +11,19 @@ Paper coming soon!
 ## Overview
 Our code uses [OpenOOD](https://github.com/Jingkang50/OpenOOD). This repo should be multiple commits ahead of the OpenOOD's main branch, as we fixed some bugs and added custom code for running SIO. We might be able to integrate SIO to the official OpenOOD implementation in the near future.
 
+
 ## Setup
-After cloning this repo, please follow the instructions [here](https://github.com/Jingkang50/OpenOOD/blob/main/README.md). we were using `torch==1.10.0+cu111` and `torchvision==0.11.0+cu111`.
+After cloning this repo, please follow the instructions [here](https://github.com/Jingkang50/OpenOOD/blob/main/README.md). We were using `torch==1.10.0+cu111` and `torchvision==0.11.0+cu111`.
 
 The part that is unique to SIO is downloading the synthetic ID samples, which can be done with [this script](/sio_related/download_synthetic_id.sh).
 
 ## Reproducing results
 We provide [here](./sio_related/sio_scripts.md) a list of bash scripts for reproducing all the main experiments in the paper (including training and evaluation).
+
+There are a few notable differences in the experimental setting between this work and OpenOOD (for CIFAR experiments):
+- For all methods we train the model for 200 epochs instead of 100 epochs, as longer training is beneficial for OOD detection.
+- We report the average AUROC over 3 independent runs, while OpenOOD reported a single run's result.
+- We remove Tiny ImageNet (TIN) images from the near-OOD split for CIFAR-10/CIFAR-100 since TIN is used as the training OOD data for Outlier Exposure. Not removing it makes a trivial problem where training and test OOD distribution overlap.
 
 ## What if I use my own implementation?
 Integrating SIO into your own method/implementation is easy. Below we show how to do this with a few lines for CIFAR-10.
