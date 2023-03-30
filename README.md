@@ -1,15 +1,15 @@
-# Training with More In-Distribution Data Benefits Out-of-Distribution Detection
+# SIO: Synthetic In-Distribution Data Benefits Out-of-Distribution Detection
 
-In this work we identify that simply training with more in-distribution (ID) data helps with Out-of-Distribution (OOD) detection. Specifically, we propose a training framework named **SIO**, which uses additional synthetic ID samples produced by generative models (e.g., GANs), together with the real ID training data, to train the base classifier. SIO is compatible with multiple OOD detection methods (either inference techniques or training algorithms) and yields immediate performance gains on top of them.
+In this work we identify that incorporating synthetic in-distribution (ID) data into training helps with Out-of-Distribution (OOD) detection. Specifically, we propose a training framework named **SIO**, which trains the classifier with synthetic and real ID samples in a weighted fashion. SIO is compatible with multiple OOD detection methods (either post-hoc inference techniques or training algorithms) and yields immediate performance gains on top of them.
 
 <p align="center">
     <img src='/sio_related/figures/cifar_results_screenshot.png' width='870'>
 </p>
 
-Paper coming soon!
+See our [arXiv preprint](https://arxiv.org/abs/2303.14531) for more details.
 
 ## Overview
-Our code uses [OpenOOD](https://github.com/Jingkang50/OpenOOD). This repo should be multiple commits ahead of the OpenOOD's main branch, as we fixed some bugs and added custom code for running SIO. We might be able to integrate SIO to the official OpenOOD implementation in the near future.
+Our code uses [OpenOOD](https://github.com/Jingkang50/OpenOOD). This repo should be multiple commits ahead of the OpenOOD's main branch, as we fixed some bugs and added custom code for running SIO. We will integrate SIO to the official OpenOOD implementation in the near future.
 
 
 ## Setup
@@ -64,5 +64,10 @@ That's it! The rest things (model, optimizer, loss function, training loop, etc.
 ## Citation
 If you find our paper/code helpful, please consider citing:
 ```
-Coming soon!
+@article{zhang2023sio,
+  title={SIO: Synthetic In-Distribution Data Benefits Out-of-Distribution Detection},
+  author={Zhang, Jingyang and Inkawhich, Nathan and Linderman, Randolph and Luley, Ryan and Chen, Yiran and Li, Hai},
+  journal={arXiv preprint arXiv:2303.14531},
+  year={2023}
+}
 ```
